@@ -53,6 +53,7 @@
   "dependencies": {
     "dom-helpers": "^5.1.4",
     "invariant": "^2.2.4",
+    "lodash-es": "^4.17.15",
     "page-lifecycle": "^0.1.2"
   },
   "devDependencies": {

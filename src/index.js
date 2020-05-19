@@ -5,11 +5,13 @@ import scrollLeft from 'dom-helpers/scrollLeft';
 import scrollTop from 'dom-helpers/scrollTop';
 import invariant from 'invariant';
 import PageLifecycle from 'page-lifecycle/dist/lifecycle.es5';
+import throttle from 'lodash-es/throttle';
 
 import { isMobileSafari } from './utils';
 
 // Try at most this many times to scroll, to avoid getting stuck.
 const MAX_SCROLL_ATTEMPTS = 2;
+const SCROLL_HANDLER_WAIT = 300;
 
 export default class ScrollBehavior {
   constructor({
@@ -194,6 +196,7 @@ export default class ScrollBehavior {
   stop() {
     this._restoreScrollRestoration();
 
+    this._onWindowScroll.cancel();
     window.removeEventListener('scroll', this._onWindowScroll);
     this._cancelCheckWindowScroll();
 
@@ -208,7 +211,7 @@ export default class ScrollBehavior {
     this._ignoreScrollEvents = false;
   }
 
-  _onWindowScroll = () => {
+  _onWindowScroll = throttle(() => {
     if (this._ignoreScrollEvents) {
       // Don't save the scroll position until navigation is complete.
       return;
@@ -234,7 +237,7 @@ export default class ScrollBehavior {
         this._cancelCheckWindowScroll();
       }
     }
-  };
+  }, SCROLL_HANDLER_WAIT);
 
   _saveWindowPosition = () => {
     this._saveWindowPositionHandle = null;
