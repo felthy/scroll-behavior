@@ -115,5 +115,5 @@ dist
 .pnp.*
 
 # Transpiled code.
-/lib
-/es
+#/lib
+#/es
