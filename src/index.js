@@ -39,7 +39,7 @@ export default class ScrollBehavior {
     // We have to listen to each window scroll update rather than to just
     //  location updates, because some browsers will update scroll position
     //  before emitting the location change.
-    window.addEventListener('scroll', this._onWindowScroll);
+    window.addEventListener('scroll', this._onWindowScroll, { passive: true });
 
     const handleNavigation = (saveWindowPosition) => {
       animationFrame.cancel(this._saveWindowPositionHandle);
@@ -194,7 +194,7 @@ export default class ScrollBehavior {
   stop() {
     this._restoreScrollRestoration();
 
-    window.removeEventListener('scroll', this._onWindowScroll);
+    window.removeEventListener('scroll', this._onWindowScroll, { passive: true });
     this._cancelCheckWindowScroll();
 
     this._removeNavigationListener();
