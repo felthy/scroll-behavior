@@ -1314,6 +1314,11 @@ after@0.8.2:
   resolved "https://registry.yarnpkg.com/after/-/after-0.8.2.tgz#fedb394f9f0e02aa9768e702bda23b505fae7e1f"
   integrity sha1-/ts5T58OAqqXaOcCvaI7UF+ufh8=
 
+afterframe@^1.0.1:
+  version "1.0.1"
+  resolved "https://registry.yarnpkg.com/afterframe/-/afterframe-1.0.1.tgz#2b0172bcb89193f5c160aa438bef20442d5c73b2"
+  integrity sha512-0AOAf3V8eplIEx7WCTwL6aMhVuW4OPWMUiIV8DB5nvdjutGQcG+EyRXVgCjSXyVE7wIXu3O+KS+eFcf7XTwanA==
+
 agent-base@5:
   version "5.1.1"
   resolved "https://registry.yarnpkg.com/agent-base/-/agent-base-5.1.1.tgz#e8fb3f242959db44d63be665db7a8e739537a32c"

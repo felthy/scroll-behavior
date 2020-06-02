@@ -51,6 +51,7 @@
   },
   "homepage": "https://github.com/taion/scroll-behavior#readme",
   "dependencies": {
+    "afterframe": "^1.0.1",
     "dom-helpers": "^5.1.4",
     "invariant": "^2.2.4",
     "page-lifecycle": "^0.1.2"

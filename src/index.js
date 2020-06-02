@@ -5,8 +5,27 @@ import scrollLeft from 'dom-helpers/scrollLeft';
 import scrollTop from 'dom-helpers/scrollTop';
 import invariant from 'invariant';
 import PageLifecycle from 'page-lifecycle/dist/lifecycle.es5';
+import afterFrame from 'afterframe'
 
 import { isMobileSafari } from './utils';
+
+function cancelableAfterFrame (callback) {
+  const handle = {
+    cancelled: false
+  }
+  afterFrame(() => {
+    if (!handle.cancelled) {
+      callback()
+    }
+  })
+  return handle
+}
+
+function cancelAfterFrame (handle) {
+  if (handle && Object.prototype.hasOwnProperty.call(handle, 'cancelled')) {
+    handle.cancelled = true
+  }
+}
 
 // Try at most this many times to scroll, to avoid getting stuck.
 const MAX_SCROLL_ATTEMPTS = 2;
@@ -42,7 +61,7 @@ export default class ScrollBehavior {
     window.addEventListener('scroll', this._onWindowScroll, { passive: true });
 
     const handleNavigation = (saveWindowPosition) => {
-      animationFrame.cancel(this._saveWindowPositionHandle);
+      cancelAfterFrame(this._saveWindowPositionHandle);
       this._saveWindowPositionHandle = null;
 
       if (saveWindowPosition && !this._ignoreScrollEvents) {
@@ -145,11 +164,7 @@ export default class ScrollBehavior {
     this._updateWindowScroll(prevContext, context).then(() => {
       // Save the position immediately after navigation so that if no scrolling
       //  occurs, there is still a saved position.
-      if (!this._saveWindowPositionHandle) {
-        this._saveWindowPositionHandle = animationFrame.request(
-          this._saveWindowPosition,
-        );
-      }
+      this._saveWindowPosition();
     });
 
     Object.keys(this._scrollElements).forEach((key) => {
@@ -218,11 +233,7 @@ export default class ScrollBehavior {
     //  `POP` navigation. Instead of updating the saved location immediately,
     //  we have to enqueue the update, then potentially cancel it if we observe
     //  a location update.
-    if (!this._saveWindowPositionHandle) {
-      this._saveWindowPositionHandle = animationFrame.request(
-        this._saveWindowPosition,
-      );
-    }
+    this._saveWindowPosition();
 
     if (this._windowScrollTarget) {
       const [xTarget, yTarget] = this._windowScrollTarget;
@@ -237,9 +248,12 @@ export default class ScrollBehavior {
   };
 
   _saveWindowPosition = () => {
-    this._saveWindowPositionHandle = null;
-
-    this._savePosition(null, window);
+    if (!this._saveWindowPositionHandle) {
+      this._saveWindowPositionHandle = cancelableAfterFrame(() => {
+        this._saveWindowPositionHandle = null;
+        this._savePosition(null, window);
+      });
+    }
   };
 
   _cancelCheckWindowScroll() {
@@ -251,7 +265,9 @@ export default class ScrollBehavior {
     const scrollElement = this._scrollElements[key];
     scrollElement.savePositionHandle = null;
 
-    this._savePosition(key, scrollElement.element);
+    afterFrame(() => {
+      this._savePosition(key, scrollElement.element);
+    });
   }
 
   _savePosition(key, element) {
