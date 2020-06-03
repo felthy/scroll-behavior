@@ -1,5 +1,6 @@
 /* eslint-disable no-underscore-dangle */
 
+import canUseDOM from 'dom-helpers/canUseDOM';
 import * as animationFrame from 'dom-helpers/animationFrame';
 import scrollLeft from 'dom-helpers/scrollLeft';
 import scrollTop from 'dom-helpers/scrollTop';
@@ -24,6 +25,21 @@ function cancelableAfterFrame (callback) {
 function cancelAfterFrame (handle) {
   if (handle && Object.prototype.hasOwnProperty.call(handle, 'cancelled')) {
     handle.cancelled = true
+  }
+}
+
+const supportsScrollBehavior = canUseDOM && 'scrollBehavior' in document.createElement('div').style
+
+function instantScrollTo (element, left, top) {
+  if (element === window) {
+    if (supportsScrollBehavior) {
+      window.scrollTo({ left, top, behavior: 'instant' });
+    } else {
+      window.scrollTo(left, top);
+    }
+  } else {
+    scrollLeft(element, left);
+    scrollTop(element, top);
   }
 }
 
@@ -257,7 +273,7 @@ export default class ScrollBehavior {
   };
 
   _cancelCheckWindowScroll() {
-    animationFrame.cancel(this._checkWindowScrollHandle);
+    cancelAfterFrame(this._checkWindowScrollHandle);
     this._checkWindowScrollHandle = null;
   }
 
@@ -350,34 +366,34 @@ export default class ScrollBehavior {
     return this._stateStorage.read(location, key);
   }
 
-  _checkWindowScrollPosition = () => {
-    this._checkWindowScrollHandle = null;
+  _checkWindowScrollPosition = () => new Promise((resolve) => {
+    const doCheckWindowScrollPosition = () => {
+      this._checkWindowScrollHandle = null;
 
-    // We can only get here if scrollTarget is set. Every code path that unsets
-    //  scroll target also cancels the handle to avoid calling this handler.
-    //  Still, check anyway just in case.
-    /* istanbul ignore if: paranoid guard */
-    if (!this._windowScrollTarget) {
-      return Promise.resolve();
+      // We can only get here if scrollTarget is set. Every code path that unsets
+      //  scroll target also cancels the handle to avoid calling this handler.
+      //  Still, check anyway just in case.
+      /* istanbul ignore if: paranoid guard */
+      if (!this._windowScrollTarget) {
+        return resolve();
+      }
+
+      this.scrollToTarget(window, this._windowScrollTarget);
+
+      ++this._numWindowScrollAttempts;
+
+      /* istanbul ignore if: paranoid guard */
+      if (this._numWindowScrollAttempts >= MAX_SCROLL_ATTEMPTS) {
+        // This might happen if the scroll position was already set to the target
+        this._windowScrollTarget = null;
+        return resolve();
+      }
+
+      resolve(this._checkWindowScrollPosition());
     }
 
-    this.scrollToTarget(window, this._windowScrollTarget);
-
-    ++this._numWindowScrollAttempts;
-
-    /* istanbul ignore if: paranoid guard */
-    if (this._numWindowScrollAttempts >= MAX_SCROLL_ATTEMPTS) {
-      // This might happen if the scroll position was already set to the target
-      this._windowScrollTarget = null;
-      return Promise.resolve();
-    }
-
-    return new Promise((resolve) => {
-      this._checkWindowScrollHandle = animationFrame.request(() =>
-        resolve(this._checkWindowScrollPosition()),
-      );
-    });
-  };
+    this._checkWindowScrollHandle = cancelableAfterFrame(doCheckWindowScrollPosition)
+  });
 
   scrollToTarget(element, target) {
     if (typeof target === 'string') {
@@ -394,7 +410,6 @@ export default class ScrollBehavior {
     }
 
     const [left, top] = target;
-    scrollLeft(element, left);
-    scrollTop(element, top);
+    instantScrollTo(element, left, top);
   }
 }
