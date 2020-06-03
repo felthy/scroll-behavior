@@ -76,13 +76,9 @@ export default class ScrollBehavior {
     //  before emitting the location change.
     window.addEventListener('scroll', this._onWindowScroll, { passive: true });
 
-    const handleNavigation = (saveWindowPosition) => {
+    const handleNavigation = () => {
       cancelAfterFrame(this._saveWindowPositionHandle);
       this._saveWindowPositionHandle = null;
-
-      if (saveWindowPosition && !this._ignoreScrollEvents) {
-        this._saveWindowPosition();
-      }
 
       Object.keys(this._scrollElements).forEach((key) => {
         const scrollElement = this._scrollElements[key];
@@ -97,10 +93,8 @@ export default class ScrollBehavior {
       });
     };
 
-    this._removeNavigationListener = addNavigationListener(({ action }) => {
-      // Don't save window position on POP, as the browser may have already
-      //  updated it.
-      handleNavigation(action !== 'POP');
+    this._removeNavigationListener = addNavigationListener(() => {
+      handleNavigation();
     });
 
     PageLifecycle.addEventListener('statechange', ({ newState }) => {
@@ -109,7 +103,7 @@ export default class ScrollBehavior {
         newState === 'frozen' ||
         newState === 'discarded'
       ) {
-        handleNavigation(true);
+        handleNavigation();
 
         // Scroll restoration persists across page reloads. We want to reset
         //  this to the original value, so that we can let the browser handle
