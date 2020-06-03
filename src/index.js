@@ -64,7 +64,7 @@ export default class ScrollBehavior {
     this._setScrollRestoration();
 
     this._saveWindowPositionHandle = null;
-    this._checkWindowScrollHandle = null;
+    this._checkWindowScrollCancelled = false;
     this._windowScrollTarget = null;
     this._numWindowScrollAttempts = 0;
     this._ignoreScrollEvents = false;
@@ -171,7 +171,7 @@ export default class ScrollBehavior {
   }
 
   updateScroll(prevContext, context) {
-    this._updateWindowScroll(prevContext, context).then(() => {
+    const promise = this._updateWindowScroll(prevContext, context).then(() => {
       // Save the position immediately after navigation so that if no scrolling
       //  occurs, there is still a saved position.
       this._saveWindowPosition();
@@ -180,6 +180,8 @@ export default class ScrollBehavior {
     Object.keys(this._scrollElements).forEach((key) => {
       this._updateElementScroll(key, prevContext, context);
     });
+
+    return promise;
   }
 
   _setScrollRestoration = () => {
@@ -267,8 +269,8 @@ export default class ScrollBehavior {
   };
 
   _cancelCheckWindowScroll() {
-    cancelAfterFrame(this._checkWindowScrollHandle);
-    this._checkWindowScrollHandle = null;
+    this._checkWindowScrollCancelled = true;
+    // But don’t actually cancel it - we still want its promise to be resolved
   }
 
   _saveElementPosition(key) {
@@ -362,7 +364,11 @@ export default class ScrollBehavior {
 
   _checkWindowScrollPosition = () => new Promise((resolve) => {
     const doCheckWindowScrollPosition = () => {
-      this._checkWindowScrollHandle = null;
+      if (this._checkWindowScrollCancelled) {
+        // Call was cancelled.
+        this._checkWindowScrollCancelled = false;
+        return resolve();
+      }
 
       // We can only get here if scrollTarget is set. Every code path that unsets
       //  scroll target also cancels the handle to avoid calling this handler.
@@ -386,7 +392,8 @@ export default class ScrollBehavior {
       resolve(this._checkWindowScrollPosition());
     }
 
-    this._checkWindowScrollHandle = cancelableAfterFrame(doCheckWindowScrollPosition)
+    this._checkWindowScrollCancelled = false;
+    afterFrame(doCheckWindowScrollPosition);
   });
 
   scrollToTarget(element, target) {
