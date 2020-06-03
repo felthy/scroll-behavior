@@ -1,5 +1,6 @@
 /* eslint-disable no-underscore-dangle */
 
+import canUseDOM from 'dom-helpers/canUseDOM';
 import * as animationFrame from 'dom-helpers/animationFrame';
 import scrollLeft from 'dom-helpers/scrollLeft';
 import scrollTop from 'dom-helpers/scrollTop';
@@ -27,6 +28,21 @@ function cancelAfterFrame (handle) {
   }
 }
 
+const supportsScrollBehavior = canUseDOM && 'scrollBehavior' in document.createElement('div').style
+
+function instantScrollTo (element, left, top) {
+  if (element === window) {
+    if (supportsScrollBehavior) {
+      window.scrollTo({ left, top, behavior: 'instant' });
+    } else {
+      window.scrollTo(left, top);
+    }
+  } else {
+    scrollLeft(element, left);
+    scrollTop(element, top);
+  }
+}
+
 // Try at most this many times to scroll, to avoid getting stuck.
 const MAX_SCROLL_ATTEMPTS = 2;
 
@@ -48,7 +64,7 @@ export default class ScrollBehavior {
     this._setScrollRestoration();
 
     this._saveWindowPositionHandle = null;
-    this._checkWindowScrollHandle = null;
+    this._checkWindowScrollCancelled = false;
     this._windowScrollTarget = null;
     this._numWindowScrollAttempts = 0;
     this._ignoreScrollEvents = false;
@@ -60,13 +76,9 @@ export default class ScrollBehavior {
     //  before emitting the location change.
     window.addEventListener('scroll', this._onWindowScroll, { passive: true });
 
-    const handleNavigation = (saveWindowPosition) => {
+    const handleNavigation = () => {
       cancelAfterFrame(this._saveWindowPositionHandle);
       this._saveWindowPositionHandle = null;
-
-      if (saveWindowPosition && !this._ignoreScrollEvents) {
-        this._saveWindowPosition();
-      }
 
       Object.keys(this._scrollElements).forEach((key) => {
         const scrollElement = this._scrollElements[key];
@@ -81,10 +93,8 @@ export default class ScrollBehavior {
       });
     };
 
-    this._removeNavigationListener = addNavigationListener(({ action }) => {
-      // Don't save window position on POP, as the browser may have already
-      //  updated it.
-      handleNavigation(action !== 'POP');
+    this._removeNavigationListener = addNavigationListener(() => {
+      handleNavigation();
     });
 
     PageLifecycle.addEventListener('statechange', ({ newState }) => {
@@ -93,7 +103,7 @@ export default class ScrollBehavior {
         newState === 'frozen' ||
         newState === 'discarded'
       ) {
-        handleNavigation(true);
+        handleNavigation();
 
         // Scroll restoration persists across page reloads. We want to reset
         //  this to the original value, so that we can let the browser handle
@@ -161,7 +171,7 @@ export default class ScrollBehavior {
   }
 
   updateScroll(prevContext, context) {
-    this._updateWindowScroll(prevContext, context).then(() => {
+    const promise = this._updateWindowScroll(prevContext, context).then(() => {
       // Save the position immediately after navigation so that if no scrolling
       //  occurs, there is still a saved position.
       this._saveWindowPosition();
@@ -170,6 +180,8 @@ export default class ScrollBehavior {
     Object.keys(this._scrollElements).forEach((key) => {
       this._updateElementScroll(key, prevContext, context);
     });
+
+    return promise;
   }
 
   _setScrollRestoration = () => {
@@ -257,8 +269,8 @@ export default class ScrollBehavior {
   };
 
   _cancelCheckWindowScroll() {
-    animationFrame.cancel(this._checkWindowScrollHandle);
-    this._checkWindowScrollHandle = null;
+    this._checkWindowScrollCancelled = true;
+    // But don’t actually cancel it - we still want its promise to be resolved
   }
 
   _saveElementPosition(key) {
@@ -350,34 +362,39 @@ export default class ScrollBehavior {
     return this._stateStorage.read(location, key);
   }
 
-  _checkWindowScrollPosition = () => {
-    this._checkWindowScrollHandle = null;
+  _checkWindowScrollPosition = () => new Promise((resolve) => {
+    const doCheckWindowScrollPosition = () => {
+      if (this._checkWindowScrollCancelled) {
+        // Call was cancelled.
+        this._checkWindowScrollCancelled = false;
+        return resolve();
+      }
 
-    // We can only get here if scrollTarget is set. Every code path that unsets
-    //  scroll target also cancels the handle to avoid calling this handler.
-    //  Still, check anyway just in case.
-    /* istanbul ignore if: paranoid guard */
-    if (!this._windowScrollTarget) {
-      return Promise.resolve();
+      // We can only get here if scrollTarget is set. Every code path that unsets
+      //  scroll target also cancels the handle to avoid calling this handler.
+      //  Still, check anyway just in case.
+      /* istanbul ignore if: paranoid guard */
+      if (!this._windowScrollTarget) {
+        return resolve();
+      }
+
+      this.scrollToTarget(window, this._windowScrollTarget);
+
+      ++this._numWindowScrollAttempts;
+
+      /* istanbul ignore if: paranoid guard */
+      if (this._numWindowScrollAttempts >= MAX_SCROLL_ATTEMPTS) {
+        // This might happen if the scroll position was already set to the target
+        this._windowScrollTarget = null;
+        return resolve();
+      }
+
+      resolve(this._checkWindowScrollPosition());
     }
 
-    this.scrollToTarget(window, this._windowScrollTarget);
-
-    ++this._numWindowScrollAttempts;
-
-    /* istanbul ignore if: paranoid guard */
-    if (this._numWindowScrollAttempts >= MAX_SCROLL_ATTEMPTS) {
-      // This might happen if the scroll position was already set to the target
-      this._windowScrollTarget = null;
-      return Promise.resolve();
-    }
-
-    return new Promise((resolve) => {
-      this._checkWindowScrollHandle = animationFrame.request(() =>
-        resolve(this._checkWindowScrollPosition()),
-      );
-    });
-  };
+    this._checkWindowScrollCancelled = false;
+    afterFrame(doCheckWindowScrollPosition);
+  });
 
   scrollToTarget(element, target) {
     if (typeof target === 'string') {
@@ -394,7 +411,6 @@ export default class ScrollBehavior {
     }
 
     const [left, top] = target;
-    scrollLeft(element, left);
-    scrollTop(element, top);
+    instantScrollTo(element, left, top);
   }
 }
