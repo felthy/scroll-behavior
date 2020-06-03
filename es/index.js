@@ -1,4 +1,5 @@
 /* eslint-disable no-underscore-dangle */
+import canUseDOM from 'dom-helpers/canUseDOM';
 import * as animationFrame from 'dom-helpers/animationFrame';
 import scrollLeft from 'dom-helpers/scrollLeft';
 import scrollTop from 'dom-helpers/scrollTop';
@@ -22,6 +23,25 @@ function cancelableAfterFrame(callback) {
 function cancelAfterFrame(handle) {
   if (handle && Object.prototype.hasOwnProperty.call(handle, 'cancelled')) {
     handle.cancelled = true;
+  }
+}
+
+var supportsScrollBehavior = canUseDOM && 'scrollBehavior' in document.createElement('div').style;
+
+function instantScrollTo(element, left, top) {
+  if (element === window) {
+    if (supportsScrollBehavior) {
+      window.scrollTo({
+        left: left,
+        top: top,
+        behavior: 'instant'
+      });
+    } else {
+      window.scrollTo(left, top);
+    }
+  } else {
+    scrollLeft(element, left);
+    scrollTop(element, top);
   }
 } // Try at most this many times to scroll, to avoid getting stuck.
 
@@ -109,31 +129,39 @@ var ScrollBehavior = /*#__PURE__*/function () {
     };
 
     this._checkWindowScrollPosition = function () {
-      _this._checkWindowScrollHandle = null; // We can only get here if scrollTarget is set. Every code path that unsets
-      //  scroll target also cancels the handle to avoid calling this handler.
-      //  Still, check anyway just in case.
-
-      /* istanbul ignore if: paranoid guard */
-
-      if (!_this._windowScrollTarget) {
-        return Promise.resolve();
-      }
-
-      _this.scrollToTarget(window, _this._windowScrollTarget);
-
-      ++_this._numWindowScrollAttempts;
-      /* istanbul ignore if: paranoid guard */
-
-      if (_this._numWindowScrollAttempts >= MAX_SCROLL_ATTEMPTS) {
-        // This might happen if the scroll position was already set to the target
-        _this._windowScrollTarget = null;
-        return Promise.resolve();
-      }
-
       return new Promise(function (resolve) {
-        _this._checkWindowScrollHandle = animationFrame.request(function () {
-          return resolve(_this._checkWindowScrollPosition());
-        });
+        var doCheckWindowScrollPosition = function doCheckWindowScrollPosition() {
+          if (_this._checkWindowScrollCancelled) {
+            // Call was cancelled.
+            _this._checkWindowScrollCancelled = false;
+            return resolve();
+          } // We can only get here if scrollTarget is set. Every code path that unsets
+          //  scroll target also cancels the handle to avoid calling this handler.
+          //  Still, check anyway just in case.
+
+          /* istanbul ignore if: paranoid guard */
+
+
+          if (!_this._windowScrollTarget) {
+            return resolve();
+          }
+
+          _this.scrollToTarget(window, _this._windowScrollTarget);
+
+          ++_this._numWindowScrollAttempts;
+          /* istanbul ignore if: paranoid guard */
+
+          if (_this._numWindowScrollAttempts >= MAX_SCROLL_ATTEMPTS) {
+            // This might happen if the scroll position was already set to the target
+            _this._windowScrollTarget = null;
+            return resolve();
+          }
+
+          resolve(_this._checkWindowScrollPosition());
+        };
+
+        _this._checkWindowScrollCancelled = false;
+        afterFrame(doCheckWindowScrollPosition);
       });
     };
 
@@ -148,7 +176,7 @@ var ScrollBehavior = /*#__PURE__*/function () {
     this._setScrollRestoration();
 
     this._saveWindowPositionHandle = null;
-    this._checkWindowScrollHandle = null;
+    this._checkWindowScrollCancelled = false;
     this._windowScrollTarget = null;
     this._numWindowScrollAttempts = 0;
     this._ignoreScrollEvents = false;
@@ -160,14 +188,9 @@ var ScrollBehavior = /*#__PURE__*/function () {
       passive: true
     });
 
-    var handleNavigation = function handleNavigation(saveWindowPosition) {
+    var handleNavigation = function handleNavigation() {
       cancelAfterFrame(_this._saveWindowPositionHandle);
       _this._saveWindowPositionHandle = null;
-
-      if (saveWindowPosition && !_this._ignoreScrollEvents) {
-        _this._saveWindowPosition();
-      }
-
       Object.keys(_this._scrollElements).forEach(function (key) {
         var scrollElement = _this._scrollElements[key];
         animationFrame.cancel(scrollElement.savePositionHandle);
@@ -180,17 +203,14 @@ var ScrollBehavior = /*#__PURE__*/function () {
       });
     };
 
-    this._removeNavigationListener = addNavigationListener(function (_ref2) {
-      var action = _ref2.action;
-      // Don't save window position on POP, as the browser may have already
-      //  updated it.
-      handleNavigation(action !== 'POP');
+    this._removeNavigationListener = addNavigationListener(function () {
+      handleNavigation();
     });
-    PageLifecycle.addEventListener('statechange', function (_ref3) {
-      var newState = _ref3.newState;
+    PageLifecycle.addEventListener('statechange', function (_ref2) {
+      var newState = _ref2.newState;
 
       if (newState === 'terminated' || newState === 'frozen' || newState === 'discarded') {
-        handleNavigation(true); // Scroll restoration persists across page reloads. We want to reset
+        handleNavigation(); // Scroll restoration persists across page reloads. We want to reset
         //  this to the original value, so that we can let the browser handle
         //  restoring the initial scroll position on server-rendered pages.
 
@@ -247,7 +267,7 @@ var ScrollBehavior = /*#__PURE__*/function () {
   _proto.updateScroll = function updateScroll(prevContext, context) {
     var _this3 = this;
 
-    this._updateWindowScroll(prevContext, context).then(function () {
+    var promise = this._updateWindowScroll(prevContext, context).then(function () {
       // Save the position immediately after navigation so that if no scrolling
       //  occurs, there is still a saved position.
       _this3._saveWindowPosition();
@@ -256,6 +276,7 @@ var ScrollBehavior = /*#__PURE__*/function () {
     Object.keys(this._scrollElements).forEach(function (key) {
       _this3._updateElementScroll(key, prevContext, context);
     });
+    return promise;
   };
 
   _proto.stop = function stop() {
@@ -279,8 +300,7 @@ var ScrollBehavior = /*#__PURE__*/function () {
   };
 
   _proto._cancelCheckWindowScroll = function _cancelCheckWindowScroll() {
-    animationFrame.cancel(this._checkWindowScrollHandle);
-    this._checkWindowScrollHandle = null;
+    this._checkWindowScrollCancelled = true; // But don’t actually cancel it - we still want its promise to be resolved
   };
 
   _proto._saveElementPosition = function _saveElementPosition(key) {
@@ -371,8 +391,7 @@ var ScrollBehavior = /*#__PURE__*/function () {
     var _target = target,
         left = _target[0],
         top = _target[1];
-    scrollLeft(element, left);
-    scrollTop(element, top);
+    instantScrollTo(element, left, top);
   };
 
   return ScrollBehavior;
